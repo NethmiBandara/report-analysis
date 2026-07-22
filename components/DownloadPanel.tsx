@@ -1,9 +1,15 @@
 "use client";
 
+import { useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import type { AnalysisSummary, Student } from "@/lib/types";
 import { ALL_GRADES, SUBJECT_KEYS, SUBJECT_LABELS } from "@/lib/types";
-import { downloadCsv, slugifyFilename } from "@/lib/downloadUtils";
+import {
+  downloadCsv,
+  downloadFullChartsPdf,
+  slugifyFilename,
+} from "@/lib/downloadUtils";
+import { FullChartsDocument } from "./FullChartsDocument";
 
 interface DownloadPanelProps {
   students: Student[];
@@ -121,6 +127,10 @@ export function DownloadPanel({
   const packs = summary ? buildChartPacks(summary) : [];
   const yearTag = examYear || "results";
   const prefix = slugifyFilename(`${schoolName}-${yearTag}`);
+  const docRef = useRef<HTMLDivElement>(null);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
 
   function downloadFullExcel() {
     if (!students.length) return;
@@ -235,20 +245,51 @@ export function DownloadPanel({
     XLSX.writeFile(wb, `${prefix}-chart-details.xlsx`);
   }
 
+  async function handleFullChartsPdf() {
+    if (!summary || !docRef.current) return;
+    setPdfBusy(true);
+    setPdfError(null);
+    try {
+      // Let Recharts finish painting SVGs
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+      await new Promise((r) => setTimeout(r, 400));
+      await downloadFullChartsPdf({
+        root: docRef.current,
+        schoolName,
+        examTitle,
+        examYear,
+        filename: `${prefix}-full-charts`,
+      });
+    } catch (err) {
+      setPdfError(
+        err instanceof Error ? err.message : "Failed to build charts PDF",
+      );
+    } finally {
+      setPdfBusy(false);
+    }
+  }
+
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="mx-auto max-w-4xl space-y-6">
       <div className="panel rounded-xl p-6">
         <h3 className="font-[family-name:var(--font-display)] text-lg font-bold text-slate-800">
           Download reports
         </h3>
         <p className="mt-2 text-sm text-slate-600">
-          Export analysed student rows, or download each graph&apos;s numbers as
-          clear tables. On the <strong>Dashboard</strong>, use{" "}
-          <strong>Download graph</strong> (PNG) and{" "}
-          <strong>Download data</strong> (CSV) on every chart.
+          Download every graph and its numbers in <strong>one PDF</strong>, or
+          export Excel / CSV packs. On the Dashboard you can also download each
+          chart individually.
         </p>
 
         <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={!summary || pdfBusy}
+            onClick={() => void handleFullChartsPdf()}
+            className="rounded-md bg-[var(--brand-deep-navy)] px-4 py-2.5 text-sm font-bold text-white shadow transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {pdfBusy ? "Building PDF…" : "Download full charts (PDF)"}
+          </button>
           <button
             type="button"
             disabled={!students.length}
@@ -265,7 +306,21 @@ export function DownloadPanel({
           >
             All chart details (Excel)
           </button>
+          {summary && (
+            <button
+              type="button"
+              onClick={() => setShowPreview((v) => !v)}
+              className="rounded-md border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              {showPreview ? "Hide chart preview" : "Show chart preview"}
+            </button>
+          )}
         </div>
+        {pdfError && (
+          <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">
+            {pdfError}
+          </p>
+        )}
         {!students.length && (
           <p className="mt-3 text-xs text-slate-400">
             Upload a results file first.
@@ -273,16 +328,33 @@ export function DownloadPanel({
         )}
       </div>
 
+      {/* Always mounted when data exists so PDF capture has real SVG charts */}
+      {summary && (
+        <div
+          ref={docRef}
+          className={
+            showPreview
+              ? "panel overflow-hidden rounded-xl"
+              : "pointer-events-none fixed top-0 left-[-12000px] w-[920px] opacity-0"
+          }
+          aria-hidden={!showPreview}
+        >
+          <FullChartsDocument
+            summary={summary}
+            schoolName={schoolName}
+            examTitle={examTitle}
+            examYear={examYear}
+          />
+        </div>
+      )}
+
       {summary && (
         <div className="space-y-3">
           <h4 className="font-[family-name:var(--font-display)] text-sm font-bold text-slate-700">
             Download each graph&apos;s details
           </h4>
           {packs.map((pack) => (
-            <article
-              key={pack.id}
-              className="panel rounded-xl p-4"
-            >
+            <article key={pack.id} className="panel rounded-xl p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <h5 className="text-sm font-bold text-slate-800">

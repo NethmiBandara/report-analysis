@@ -155,7 +155,7 @@ export function ResultsApp() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-transparent">
-      <div className="print:hidden">
+      <div className="print:hidden h-screen shrink-0">
         <Sidebar active={tab} onChange={setTab} />
       </div>
 

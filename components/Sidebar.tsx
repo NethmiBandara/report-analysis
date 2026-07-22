@@ -26,15 +26,15 @@ interface SidebarProps {
 
 export function Sidebar({ active, onChange }: SidebarProps) {
   return (
-    <aside className="flex w-64 shrink-0 flex-col bg-[var(--brand-deep-navy)] text-white shadow-xl">
+    <aside className="sidebar-nav flex h-full min-h-screen w-64 shrink-0 flex-col text-white shadow-xl">
       <div className="flex flex-col items-center border-b border-white/10 px-5 py-6 text-center">
-        <div className="mb-3 flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border-2 border-[var(--brand-gold)] bg-white p-1.5 shadow-lg">
+        <div className="mb-3 flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border-2 border-[var(--brand-gold)] bg-black shadow-lg">
           <Image
             src="/logo.png"
             alt="Defence Services College crest"
-            width={88}
-            height={88}
-            className="h-full w-full object-contain"
+            width={96}
+            height={96}
+            className="h-[92%] w-[92%] object-contain object-center"
             priority
           />
         </div>
@@ -49,7 +49,7 @@ export function Sidebar({ active, onChange }: SidebarProps) {
         </p>
       </div>
 
-      <nav className="flex-1 space-y-1 p-3 text-sm">
+      <nav className="flex-1 space-y-1 overflow-y-auto p-3 text-sm">
         {NAV.map((item) => {
           const isActive = active === item.id;
           return (
@@ -59,7 +59,7 @@ export function Sidebar({ active, onChange }: SidebarProps) {
               onClick={() => onChange(item.id)}
               className={`w-full rounded-lg px-4 py-3 text-left font-semibold transition ${
                 isActive
-                  ? "bg-[var(--brand-royal)] text-white shadow"
+                  ? "bg-[var(--brand-royal)] text-white shadow-[0_0_0_1px_rgba(255,210,0,0.35)]"
                   : "text-slate-300 hover:bg-white/10"
               }`}
             >
