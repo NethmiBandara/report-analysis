@@ -335,7 +335,7 @@ export function DownloadPanel({
           className={
             showPreview
               ? "panel overflow-hidden rounded-xl"
-              : "pointer-events-none fixed top-0 left-[-12000px] w-[920px] opacity-0"
+              : "pointer-events-none fixed top-0 left-0 z-[-1] w-[920px] opacity-0"
           }
           aria-hidden={!showPreview}
         >

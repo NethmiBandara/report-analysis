@@ -47,18 +47,142 @@ export function downloadCsv(
   );
 }
 
-function inlineSvgStyles(svg: SVGElement) {
-  const clone = svg.cloneNode(true) as SVGElement;
-  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-  clone.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
+/** Convert css rgb()/rgba()/hex to a paint string safe for standalone SVG */
+function cssColorToPaint(value: string): string | null {
+  const v = value.trim();
+  if (!v || v === "none" || v === "transparent") return v === "none" ? "none" : null;
+  if (v.startsWith("url(")) return null; // keep original url(#id) on the element
+  if (v.startsWith("#")) return v;
+  const m = v.match(
+    /^rgba?\(\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)(?:\s*,\s*([0-9.]+))?\s*\)$/i,
+  );
+  if (m) {
+    const r = Math.round(Number(m[1]));
+    const g = Math.round(Number(m[2]));
+    const b = Math.round(Number(m[3]));
+    const a = m[4] !== undefined ? Number(m[4]) : 1;
+    if (a <= 0) return "none";
+    const hex = `#${[r, g, b].map((n) => n.toString(16).padStart(2, "0")).join("")}`;
+    return a < 1 ? `rgba(${r},${g},${b},${a})` : hex;
+  }
+  return v;
+}
 
-  if (!clone.getAttribute("width") || !clone.getAttribute("height")) {
-    const box = svg.getBoundingClientRect();
-    clone.setAttribute("width", String(Math.max(1, Math.round(box.width))));
-    clone.setAttribute("height", String(Math.max(1, Math.round(box.height))));
+/**
+ * Prepare a Recharts SVG so it can be rasterized as a standalone <img>.
+ * Inlines computed paints and strips HTML foreignObject nodes that break export.
+ */
+function prepareSvgForExport(svg: SVGElement): {
+  clone: SVGElement;
+  width: number;
+  height: number;
+} {
+  const box = svg.getBoundingClientRect();
+  const width = Math.max(
+    1,
+    Math.round(box.width || svg.clientWidth || Number(svg.getAttribute("width")) || 640),
+  );
+  const height = Math.max(
+    1,
+    Math.round(
+      box.height || svg.clientHeight || Number(svg.getAttribute("height")) || 320,
+    ),
+  );
+
+  const clone = svg.cloneNode(true) as SVGElement;
+
+  // These break SVG-as-image rendering in Chromium
+  clone
+    .querySelectorAll(
+      "foreignObject, script, .recharts-tooltip-wrapper, .recharts-default-tooltip",
+    )
+    .forEach((node) => node.remove());
+
+  const srcNodes = [svg, ...Array.from(svg.querySelectorAll("*"))];
+  const dstNodes = [clone, ...Array.from(clone.querySelectorAll("*"))];
+
+  for (let i = 0; i < srcNodes.length; i++) {
+    const src = srcNodes[i];
+    const dst = dstNodes[i] as Element | undefined;
+    if (!src || !dst) continue;
+
+    const tag = dst.tagName.toLowerCase();
+    const paintable = [
+      "path",
+      "rect",
+      "circle",
+      "ellipse",
+      "line",
+      "polyline",
+      "polygon",
+      "text",
+      "tspan",
+      "g",
+    ].includes(tag);
+    if (!paintable) continue;
+
+    const cs = window.getComputedStyle(src);
+
+    const fill = cssColorToPaint(cs.fill);
+    if (fill) dst.setAttribute("fill", fill);
+    else if (!dst.getAttribute("fill") && tag !== "g") {
+      // Prefer explicit attribute from source if present
+      const srcFill = src.getAttribute("fill");
+      if (srcFill) dst.setAttribute("fill", srcFill);
+    }
+
+    const stroke = cssColorToPaint(cs.stroke);
+    if (stroke) dst.setAttribute("stroke", stroke);
+
+    if (cs.strokeWidth) dst.setAttribute("stroke-width", cs.strokeWidth);
+    if (cs.opacity && cs.opacity !== "1") {
+      dst.setAttribute("opacity", cs.opacity);
+    }
+    if (cs.fillOpacity && cs.fillOpacity !== "1") {
+      dst.setAttribute("fill-opacity", cs.fillOpacity);
+    }
+
+    if (tag === "text" || tag === "tspan") {
+      dst.setAttribute("font-size", cs.fontSize || "12px");
+      dst.setAttribute(
+        "font-family",
+        (cs.fontFamily || "Segoe UI, Arial, sans-serif").replace(/"/g, ""),
+      );
+      if (cs.fontWeight) dst.setAttribute("font-weight", cs.fontWeight);
+      const textFill = cssColorToPaint(cs.color) || cssColorToPaint(cs.fill);
+      if (textFill) dst.setAttribute("fill", textFill);
+    }
   }
 
-  return clone;
+  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  clone.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
+  clone.setAttribute("width", String(width));
+  clone.setAttribute("height", String(height));
+  clone.setAttribute("focusable", "false");
+
+  const viewBox = svg.getAttribute("viewBox");
+  if (viewBox) clone.setAttribute("viewBox", viewBox);
+  else clone.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+  // Ensure opaque white background inside the SVG
+  const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+  bg.setAttribute("x", "0");
+  bg.setAttribute("y", "0");
+  bg.setAttribute("width", "100%");
+  bg.setAttribute("height", "100%");
+  bg.setAttribute("fill", "#ffffff");
+  clone.insertBefore(bg, clone.firstChild);
+
+  return { clone, width, height };
+}
+
+function svgToDataUrl(svg: SVGElement): string {
+  let xml = new XMLSerializer().serializeToString(svg);
+  if (!xml.includes('xmlns="http://www.w3.org/2000/svg"')) {
+    xml = xml.replace(/<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+  }
+  // encodeURIComponent is more reliable than Blob URLs for SVG→canvas
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(xml)}`;
 }
 
 /**
@@ -74,14 +198,14 @@ export async function renderChartPngBlob(options: {
 }): Promise<Blob> {
   const { chartRoot, title, subtitle, detailLines = [], scale = 2 } = options;
 
-  const svg = chartRoot.querySelector("svg");
+  const svg = chartRoot.querySelector("svg.recharts-surface") || chartRoot.querySelector("svg");
   if (!svg) {
     throw new Error("No chart graphic found to export.");
   }
 
-  const cloned = inlineSvgStyles(svg);
-  const svgWidth = Number(cloned.getAttribute("width")) || 640;
-  const svgHeight = Number(cloned.getAttribute("height")) || 320;
+  const { clone, width: svgWidth, height: svgHeight } = prepareSvgForExport(
+    svg as SVGElement,
+  );
 
   const padding = 28;
   const hasTitle = Boolean(title.trim());
@@ -100,74 +224,65 @@ export async function renderChartPngBlob(options: {
       padding,
   );
 
-  const serializer = new XMLSerializer();
-  const svgXml = serializer.serializeToString(cloned);
-  const svgBlob = new Blob([svgXml], {
-    type: "image/svg+xml;charset=utf-8",
-  });
-  const svgUrl = URL.createObjectURL(svgBlob);
+  const dataUrl = svgToDataUrl(clone);
+  const img = await loadImage(dataUrl);
 
-  try {
-    const img = await loadImage(svgUrl);
-    const canvas = document.createElement("canvas");
-    canvas.width = canvasW * scale;
-    canvas.height = canvasH * scale;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("Canvas unavailable.");
+  const canvas = document.createElement("canvas");
+  canvas.width = canvasW * scale;
+  canvas.height = canvasH * scale;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas unavailable.");
 
-    ctx.scale(scale, scale);
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, canvasW, canvasH);
+  ctx.scale(scale, scale);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvasW, canvasH);
 
-    if (hasTitle) {
-      ctx.fillStyle = "#0054A6";
-      ctx.fillRect(0, 0, canvasW, 4);
-    }
-
-    let y = padding + (hasTitle ? 4 : 0);
-    if (hasTitle) {
-      ctx.fillStyle = "#0f172a";
-      ctx.font = "bold 18px 'Segoe UI', system-ui, sans-serif";
-      ctx.fillText(title, padding, y + 18);
-      y += titleH;
-    }
-
-    if (subtitle) {
-      ctx.fillStyle = "#64748b";
-      ctx.font = "12px 'Segoe UI', system-ui, sans-serif";
-      ctx.fillText(subtitle, padding, y + 14);
-      y += subtitleH;
-    }
-
-    if (hasTitle || subtitle) y += 12;
-    ctx.drawImage(img, padding, y, svgWidth, svgHeight);
-    y += svgHeight;
-
-    if (detailLines.length) {
-      y += 16;
-      ctx.strokeStyle = "#e2e8f0";
-      ctx.beginPath();
-      ctx.moveTo(padding, y - 8);
-      ctx.lineTo(canvasW - padding, y - 8);
-      ctx.stroke();
-
-      ctx.fillStyle = "#334155";
-      ctx.font = "12px 'Segoe UI', system-ui, sans-serif";
-      for (const line of detailLines) {
-        ctx.fillText(line, padding, y + 12);
-        y += 18;
-      }
-    }
-
-    return await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob(
-        (b) => (b ? resolve(b) : reject(new Error("PNG encode failed"))),
-        "image/png",
-      );
-    });
-  } finally {
-    URL.revokeObjectURL(svgUrl);
+  if (hasTitle) {
+    ctx.fillStyle = "#0054A6";
+    ctx.fillRect(0, 0, canvasW, 4);
   }
+
+  let y = padding + (hasTitle ? 4 : 0);
+  if (hasTitle) {
+    ctx.fillStyle = "#0f172a";
+    ctx.font = "bold 18px 'Segoe UI', system-ui, sans-serif";
+    ctx.fillText(title, padding, y + 18);
+    y += titleH;
+  }
+
+  if (subtitle) {
+    ctx.fillStyle = "#64748b";
+    ctx.font = "12px 'Segoe UI', system-ui, sans-serif";
+    ctx.fillText(subtitle, padding, y + 14);
+    y += subtitleH;
+  }
+
+  if (hasTitle || subtitle) y += 12;
+  ctx.drawImage(img, padding, y, svgWidth, svgHeight);
+  y += svgHeight;
+
+  if (detailLines.length) {
+    y += 16;
+    ctx.strokeStyle = "#e2e8f0";
+    ctx.beginPath();
+    ctx.moveTo(padding, y - 8);
+    ctx.lineTo(canvasW - padding, y - 8);
+    ctx.stroke();
+
+    ctx.fillStyle = "#334155";
+    ctx.font = "12px 'Segoe UI', system-ui, sans-serif";
+    for (const line of detailLines) {
+      ctx.fillText(line, padding, y + 12);
+      y += 18;
+    }
+  }
+
+  return await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (b) => (b ? resolve(b) : reject(new Error("PNG encode failed"))),
+      "image/png",
+    );
+  });
 }
 
 export async function downloadChartPng(options: {
