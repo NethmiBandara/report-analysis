@@ -1,11 +1,15 @@
+import { toPng } from "html-to-image";
+
 /** Filename-safe slug for downloads */
 export function slugifyFilename(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80) || "chart";
+  return (
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80) || "chart"
+  );
 }
 
 function triggerDownload(blob: Blob, filename: string) {
@@ -47,185 +51,171 @@ export function downloadCsv(
   );
 }
 
-/** Convert css rgb()/rgba()/hex to a paint string safe for standalone SVG */
-function cssColorToPaint(value: string): string | null {
-  const v = value.trim();
-  if (!v || v === "none" || v === "transparent") return v === "none" ? "none" : null;
-  if (v.startsWith("url(")) return null; // keep original url(#id) on the element
-  if (v.startsWith("#")) return v;
-  const m = v.match(
-    /^rgba?\(\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)(?:\s*,\s*([0-9.]+))?\s*\)$/i,
-  );
-  if (m) {
-    const r = Math.round(Number(m[1]));
-    const g = Math.round(Number(m[2]));
-    const b = Math.round(Number(m[3]));
-    const a = m[4] !== undefined ? Number(m[4]) : 1;
-    if (a <= 0) return "none";
-    const hex = `#${[r, g, b].map((n) => n.toString(16).padStart(2, "0")).join("")}`;
-    return a < 1 ? `rgba(${r},${g},${b},${a})` : hex;
+function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Failed to render chart image."));
+    img.src = url;
+  });
+}
+
+/** Find the painted chart wrapper (full size), not legend icons. */
+function findCaptureTarget(root: HTMLElement): HTMLElement {
+  const wrapper = root.querySelector(".recharts-wrapper") as HTMLElement | null;
+  if (wrapper) {
+    const box = wrapper.getBoundingClientRect();
+    if (box.width >= 120 && box.height >= 120) return wrapper;
   }
-  return v;
+  return root;
 }
 
 /**
- * Prepare a Recharts SVG so it can be rasterized as a standalone <img>.
- * Inlines computed paints and strips HTML foreignObject nodes that break export.
+ * Capture the live Recharts DOM exactly as shown on screen.
+ * Temporarily forces visibility so off-screen / opacity-0 nodes still rasterize.
  */
-function prepareSvgForExport(svg: SVGElement): {
-  clone: SVGElement;
-  width: number;
-  height: number;
-} {
-  const box = svg.getBoundingClientRect();
-  const width = Math.max(
-    1,
-    Math.round(box.width || svg.clientWidth || Number(svg.getAttribute("width")) || 640),
-  );
-  const height = Math.max(
-    1,
-    Math.round(
-      box.height || svg.clientHeight || Number(svg.getAttribute("height")) || 320,
-    ),
-  );
+async function captureChartDom(
+  chartRoot: HTMLElement,
+  pixelRatio = 2,
+): Promise<{ dataUrl: string; width: number; height: number }> {
+  const target = findCaptureTarget(chartRoot);
 
-  const clone = svg.cloneNode(true) as SVGElement;
+  const prev = {
+    opacity: target.style.opacity,
+    visibility: target.style.visibility,
+    position: target.style.position,
+    left: target.style.left,
+    top: target.style.top,
+    zIndex: target.style.zIndex,
+    pointerEvents: target.style.pointerEvents,
+    background: target.style.background,
+  };
 
-  // These break SVG-as-image rendering in Chromium
-  clone
-    .querySelectorAll(
-      "foreignObject, script, .recharts-tooltip-wrapper, .recharts-default-tooltip",
-    )
-    .forEach((node) => node.remove());
+  // Ensure the node is paint-capable for html-to-image
+  target.style.opacity = "1";
+  target.style.visibility = "visible";
+  target.style.background = "#ffffff";
 
-  const srcNodes = [svg, ...Array.from(svg.querySelectorAll("*"))];
-  const dstNodes = [clone, ...Array.from(clone.querySelectorAll("*"))];
-
-  for (let i = 0; i < srcNodes.length; i++) {
-    const src = srcNodes[i];
-    const dst = dstNodes[i] as Element | undefined;
-    if (!src || !dst) continue;
-
-    const tag = dst.tagName.toLowerCase();
-    const paintable = [
-      "path",
-      "rect",
-      "circle",
-      "ellipse",
-      "line",
-      "polyline",
-      "polygon",
-      "text",
-      "tspan",
-      "g",
-    ].includes(tag);
-    if (!paintable) continue;
-
-    const cs = window.getComputedStyle(src);
-
-    const fill = cssColorToPaint(cs.fill);
-    if (fill) dst.setAttribute("fill", fill);
-    else if (!dst.getAttribute("fill") && tag !== "g") {
-      // Prefer explicit attribute from source if present
-      const srcFill = src.getAttribute("fill");
-      if (srcFill) dst.setAttribute("fill", srcFill);
+  // If ancestors are opacity-0, lift a capture clone approach via on-screen flash
+  const hiddenAncestors: { el: HTMLElement; opacity: string; visibility: string }[] =
+    [];
+  let parent: HTMLElement | null = target.parentElement;
+  while (parent) {
+    const cs = getComputedStyle(parent);
+    if (cs.opacity === "0" || cs.visibility === "hidden") {
+      hiddenAncestors.push({
+        el: parent,
+        opacity: parent.style.opacity,
+        visibility: parent.style.visibility,
+      });
+      parent.style.opacity = "1";
+      parent.style.visibility = "visible";
     }
-
-    const stroke = cssColorToPaint(cs.stroke);
-    if (stroke) dst.setAttribute("stroke", stroke);
-
-    if (cs.strokeWidth) dst.setAttribute("stroke-width", cs.strokeWidth);
-    if (cs.opacity && cs.opacity !== "1") {
-      dst.setAttribute("opacity", cs.opacity);
-    }
-    if (cs.fillOpacity && cs.fillOpacity !== "1") {
-      dst.setAttribute("fill-opacity", cs.fillOpacity);
-    }
-
-    if (tag === "text" || tag === "tspan") {
-      dst.setAttribute("font-size", cs.fontSize || "12px");
-      dst.setAttribute(
-        "font-family",
-        (cs.fontFamily || "Segoe UI, Arial, sans-serif").replace(/"/g, ""),
-      );
-      if (cs.fontWeight) dst.setAttribute("font-weight", cs.fontWeight);
-      const textFill = cssColorToPaint(cs.color) || cssColorToPaint(cs.fill);
-      if (textFill) dst.setAttribute("fill", textFill);
-    }
+    parent = parent.parentElement;
   }
 
-  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-  clone.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
-  clone.setAttribute("width", String(width));
-  clone.setAttribute("height", String(height));
-  clone.setAttribute("focusable", "false");
+  try {
+    // Allow layout to settle after style changes
+    await new Promise((r) => requestAnimationFrame(() => r(null)));
+    await new Promise((r) => setTimeout(r, 50));
 
-  const viewBox = svg.getAttribute("viewBox");
-  if (viewBox) clone.setAttribute("viewBox", viewBox);
-  else clone.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    const box = target.getBoundingClientRect();
+    const width = Math.max(320, Math.ceil(box.width || target.offsetWidth || 640));
+    const height = Math.max(
+      220,
+      Math.ceil(box.height || target.offsetHeight || 320),
+    );
 
-  // Ensure opaque white background inside the SVG
-  const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-  bg.setAttribute("x", "0");
-  bg.setAttribute("y", "0");
-  bg.setAttribute("width", "100%");
-  bg.setAttribute("height", "100%");
-  bg.setAttribute("fill", "#ffffff");
-  clone.insertBefore(bg, clone.firstChild);
+    const dataUrl = await toPng(target, {
+      cacheBust: true,
+      pixelRatio,
+      backgroundColor: "#ffffff",
+      width,
+      height,
+      style: {
+        background: "#ffffff",
+        opacity: "1",
+        visibility: "visible",
+      },
+      filter: (node) => {
+        if (!(node instanceof Element)) return true;
+        return (
+          !node.classList.contains("recharts-tooltip-wrapper") &&
+          !node.classList.contains("print:hidden")
+        );
+      },
+    });
 
-  return { clone, width, height };
-}
-
-function svgToDataUrl(svg: SVGElement): string {
-  let xml = new XMLSerializer().serializeToString(svg);
-  if (!xml.includes('xmlns="http://www.w3.org/2000/svg"')) {
-    xml = xml.replace(/<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+    return { dataUrl, width, height };
+  } finally {
+    target.style.opacity = prev.opacity;
+    target.style.visibility = prev.visibility;
+    target.style.position = prev.position;
+    target.style.left = prev.left;
+    target.style.top = prev.top;
+    target.style.zIndex = prev.zIndex;
+    target.style.pointerEvents = prev.pointerEvents;
+    target.style.background = prev.background;
+    for (const a of hiddenAncestors) {
+      a.el.style.opacity = a.opacity;
+      a.el.style.visibility = a.visibility;
+    }
   }
-  // encodeURIComponent is more reliable than Blob URLs for SVG→canvas
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(xml)}`;
 }
 
 /**
- * Export a Recharts (or any) SVG chart as a clear PNG with title + optional
- * detail lines drawn above/below the graph.
+ * Build a report-style PNG: title + live chart capture + detail table.
  */
 export async function renderChartPngBlob(options: {
   chartRoot: HTMLElement;
   title: string;
   subtitle?: string;
   detailLines?: string[];
+  detailHeaders?: string[];
+  detailRows?: (string | number)[][];
   scale?: number;
 }): Promise<Blob> {
-  const { chartRoot, title, subtitle, detailLines = [], scale = 2 } = options;
+  const {
+    chartRoot,
+    title,
+    subtitle,
+    detailLines = [],
+    detailHeaders,
+    detailRows,
+    scale = 2,
+  } = options;
 
-  const svg = chartRoot.querySelector("svg.recharts-surface") || chartRoot.querySelector("svg");
-  if (!svg) {
-    throw new Error("No chart graphic found to export.");
-  }
+  const captured = await captureChartDom(chartRoot, scale);
+  const chartImg = await loadImage(captured.dataUrl);
 
-  const { clone, width: svgWidth, height: svgHeight } = prepareSvgForExport(
-    svg as SVGElement,
-  );
-
-  const padding = 28;
+  const padding = 32;
   const hasTitle = Boolean(title.trim());
-  const titleH = hasTitle ? 36 : 0;
-  const subtitleH = subtitle ? 22 : 0;
-  const detailBlockH =
-    detailLines.length > 0 ? 16 + detailLines.length * 18 + 8 : 0;
-  const canvasW = Math.ceil(svgWidth + padding * 2);
+  const titleH = hasTitle ? 40 : 0;
+  const subtitleH = subtitle ? 24 : 0;
+  const gap = hasTitle || subtitle ? 14 : 0;
+
+  const chartW = captured.width;
+  const chartH = captured.height;
+  const canvasW = Math.max(800, chartW + padding * 2);
+
+  const hasTable =
+    Boolean(detailHeaders?.length) && Boolean(detailRows?.length);
+  const tableRowH = 22;
+  const tableH = hasTable
+    ? 12 + tableRowH * (1 + (detailRows?.length ?? 0))
+    : detailLines.length
+      ? 16 + detailLines.length * 18
+      : 0;
+
   const canvasH = Math.ceil(
     padding +
       titleH +
       subtitleH +
-      (hasTitle || subtitle ? 12 : 0) +
-      svgHeight +
-      detailBlockH +
+      gap +
+      chartH +
+      (tableH ? tableH + 16 : 0) +
       padding,
   );
-
-  const dataUrl = svgToDataUrl(clone);
-  const img = await loadImage(dataUrl);
 
   const canvas = document.createElement("canvas");
   canvas.width = canvasW * scale;
@@ -237,32 +227,66 @@ export async function renderChartPngBlob(options: {
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, canvasW, canvasH);
 
-  if (hasTitle) {
-    ctx.fillStyle = "#0054A6";
-    ctx.fillRect(0, 0, canvasW, 4);
-  }
+  ctx.fillStyle = "#0054A6";
+  ctx.fillRect(0, 0, canvasW, 5);
 
-  let y = padding + (hasTitle ? 4 : 0);
+  let y = padding + 4;
+
   if (hasTitle) {
     ctx.fillStyle = "#0f172a";
-    ctx.font = "bold 18px 'Segoe UI', system-ui, sans-serif";
-    ctx.fillText(title, padding, y + 18);
+    ctx.font = "bold 22px 'Segoe UI', system-ui, sans-serif";
+    ctx.fillText(title, padding, y + 20);
     y += titleH;
   }
 
   if (subtitle) {
     ctx.fillStyle = "#64748b";
-    ctx.font = "12px 'Segoe UI', system-ui, sans-serif";
+    ctx.font = "13px 'Segoe UI', system-ui, sans-serif";
     ctx.fillText(subtitle, padding, y + 14);
     y += subtitleH;
   }
 
-  if (hasTitle || subtitle) y += 12;
-  ctx.drawImage(img, padding, y, svgWidth, svgHeight);
-  y += svgHeight;
+  y += gap;
 
-  if (detailLines.length) {
-    y += 16;
+  const chartX = Math.max(padding, Math.round((canvasW - chartW) / 2));
+  ctx.drawImage(chartImg, chartX, y, chartW, chartH);
+  y += chartH + 16;
+
+  if (hasTable && detailHeaders && detailRows) {
+    ctx.strokeStyle = "#e2e8f0";
+    ctx.beginPath();
+    ctx.moveTo(padding, y - 8);
+    ctx.lineTo(canvasW - padding, y - 8);
+    ctx.stroke();
+
+    const cols = detailHeaders.length;
+    const tableW = canvasW - padding * 2;
+    const colW = tableW / cols;
+
+    ctx.fillStyle = "#0054A6";
+    ctx.fillRect(padding, y, tableW, tableRowH);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 12px 'Segoe UI', system-ui, sans-serif";
+    detailHeaders.forEach((h, i) => {
+      ctx.fillText(h, padding + i * colW + 8, y + 15, colW - 12);
+    });
+    y += tableRowH;
+
+    ctx.font = "12px 'Segoe UI', system-ui, sans-serif";
+    detailRows.forEach((row, rowIndex) => {
+      if (rowIndex % 2 === 1) {
+        ctx.fillStyle = "#f8fafc";
+        ctx.fillRect(padding, y, tableW, tableRowH);
+      }
+      ctx.strokeStyle = "#e2e8f0";
+      ctx.strokeRect(padding, y, tableW, tableRowH);
+      ctx.fillStyle = "#334155";
+      row.forEach((cell, i) => {
+        ctx.fillText(String(cell), padding + i * colW + 8, y + 15, colW - 12);
+      });
+      y += tableRowH;
+    });
+  } else if (detailLines.length) {
     ctx.strokeStyle = "#e2e8f0";
     ctx.beginPath();
     ctx.moveTo(padding, y - 8);
@@ -272,7 +296,7 @@ export async function renderChartPngBlob(options: {
     ctx.fillStyle = "#334155";
     ctx.font = "12px 'Segoe UI', system-ui, sans-serif";
     for (const line of detailLines) {
-      ctx.fillText(line, padding, y + 12);
+      ctx.fillText(line, padding, y + 12, canvasW - padding * 2);
       y += 18;
     }
   }
@@ -290,6 +314,8 @@ export async function downloadChartPng(options: {
   title: string;
   subtitle?: string;
   detailLines?: string[];
+  detailHeaders?: string[];
+  detailRows?: (string | number)[][];
   filename: string;
   scale?: number;
 }): Promise<void> {
@@ -303,7 +329,6 @@ export async function downloadChartPng(options: {
 
 /**
  * Build one multi-page PDF from rendered chart sections in the DOM.
- * Each `[data-doc-chart]` becomes a page: graph + detail table.
  */
 export async function downloadFullChartsPdf(options: {
   root: HTMLElement;
@@ -353,8 +378,8 @@ export async function downloadFullChartsPdf(options: {
   pdf.text("Contents", margin, 82);
   pdf.setTextColor(15, 23, 42);
   sections.forEach((section, i) => {
-    const title = section.getAttribute("data-doc-title") || `Chart ${i + 1}`;
-    pdf.text(`${i + 1}. ${title}`, margin, 92 + i * 8);
+    const t = section.getAttribute("data-doc-title") || `Chart ${i + 1}`;
+    pdf.text(`${i + 1}. ${t}`, margin, 92 + i * 8);
   });
 
   for (let i = 0; i < sections.length; i++) {
@@ -385,22 +410,18 @@ export async function downloadFullChartsPdf(options: {
 
     let y = 28;
     if (graphic) {
-      const blob = await renderChartPngBlob({
-        chartRoot: graphic,
-        title: "",
-        scale: 2,
-      });
-      const dataUrl = await blobToDataUrl(blob);
-      const maxH = pageH * 0.5;
-      const props = pdf.getImageProperties(dataUrl);
+      // Capture ONLY the live chart (no composed title) for PDF page
+      const captured = await captureChartDom(graphic, 2);
+      const maxH = pageH * 0.52;
+      const props = pdf.getImageProperties(captured.dataUrl);
       let imgW = usableW;
       let imgH = (props.height * imgW) / props.width;
       if (imgH > maxH) {
         imgH = maxH;
         imgW = (props.width * imgH) / props.height;
       }
-      pdf.addImage(dataUrl, "PNG", margin, y, imgW, imgH);
-      y += imgH + 6;
+      pdf.addImage(captured.dataUrl, "PNG", margin, y, imgW, imgH);
+      y += imgH + 8;
     }
 
     if (table) {
@@ -481,22 +502,4 @@ function drawPdfTable(
   });
 
   return y + 4;
-}
-
-function blobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error("Failed to read image"));
-    reader.readAsDataURL(blob);
-  });
-}
-
-function loadImage(url: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("Failed to render chart image."));
-    img.src = url;
-  });
 }

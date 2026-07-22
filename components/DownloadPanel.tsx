@@ -249,10 +249,12 @@ export function DownloadPanel({
     if (!summary || !docRef.current) return;
     setPdfBusy(true);
     setPdfError(null);
+    const wasPreview = showPreview;
     try {
-      // Let Recharts finish painting SVGs
+      // Charts must be on-screen and opaque for accurate capture
+      setShowPreview(true);
       await new Promise((r) => requestAnimationFrame(() => r(null)));
-      await new Promise((r) => setTimeout(r, 400));
+      await new Promise((r) => setTimeout(r, 600));
       await downloadFullChartsPdf({
         root: docRef.current,
         schoolName,
@@ -265,6 +267,7 @@ export function DownloadPanel({
         err instanceof Error ? err.message : "Failed to build charts PDF",
       );
     } finally {
+      if (!wasPreview) setShowPreview(false);
       setPdfBusy(false);
     }
   }
@@ -328,16 +331,16 @@ export function DownloadPanel({
         )}
       </div>
 
-      {/* Always mounted when data exists so PDF capture has real SVG charts */}
+      {/* Chart document used for PDF capture — keep mounted with real size */}
       {summary && (
         <div
           ref={docRef}
           className={
-            showPreview
+            showPreview || pdfBusy
               ? "panel overflow-hidden rounded-xl"
-              : "pointer-events-none fixed top-0 left-0 z-[-1] w-[920px] opacity-0"
+              : "pointer-events-none absolute -left-[9999px] top-0 h-[1px] w-[920px] overflow-hidden opacity-0"
           }
-          aria-hidden={!showPreview}
+          aria-hidden={!showPreview && !pdfBusy}
         >
           <FullChartsDocument
             summary={summary}

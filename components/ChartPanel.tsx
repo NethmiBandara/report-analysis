@@ -51,18 +51,12 @@ export function ChartPanel({
     setBusy("png");
     setError(null);
     try {
-      const detailLines =
-        details?.rows.slice(0, 12).map((row) =>
-          details.headers
-            .map((h, i) => `${h}: ${row[i] ?? ""}`)
-            .join("  ·  "),
-        ) ?? [];
-
       await downloadChartPng({
         chartRoot: chartRef.current,
         title,
         subtitle: [meta, subtitle].filter(Boolean).join(" · ") || undefined,
-        detailLines,
+        detailHeaders: details?.headers,
+        detailRows: details?.rows,
         filename: `${base}-graph`,
       });
     } catch (err) {
