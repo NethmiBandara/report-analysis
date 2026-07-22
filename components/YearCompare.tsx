@@ -15,6 +15,7 @@ import {
 } from "recharts";
 import { CHART } from "@/lib/colors";
 import { SUBJECT_KEYS, SUBJECT_LABELS, type YearListItem } from "@/lib/types";
+import { ChartPanel } from "./ChartPanel";
 
 interface YearCompareProps {
   onLoadYear: (year: string) => void;
@@ -202,7 +203,19 @@ export function YearCompare({ onLoadYear, refreshKey = 0 }: YearCompareProps) {
 
       {years.length >= 2 ? (
         <div className="grid gap-6 lg:grid-cols-2">
-          <ChartPanel title="Pass % by year">
+          <ChartPanel
+            title="Pass % by year"
+            fileBase="year-pass-fail-rate"
+            details={{
+              headers: ["Year", "Pass %", "Fail %", "Students"],
+              rows: overview.map((y) => [
+                y.year,
+                `${y.passPercent}%`,
+                `${y.failPercent}%`,
+                y.studentCount,
+              ]),
+            }}
+          >
             <ResponsiveContainer width="100%" height={280}>
               <LineChart data={overview}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -230,7 +243,18 @@ export function YearCompare({ onLoadYear, refreshKey = 0 }: YearCompareProps) {
             </ResponsiveContainer>
           </ChartPanel>
 
-          <ChartPanel title="Gender pass % by year">
+          <ChartPanel
+            title="Gender pass % by year"
+            fileBase="year-gender-pass-rate"
+            details={{
+              headers: ["Year", "Male pass %", "Female pass %"],
+              rows: overview.map((y) => [
+                y.year,
+                `${y.malePassPercent}%`,
+                `${y.femalePassPercent}%`,
+              ]),
+            }}
+          >
             <ResponsiveContainer width="100%" height={280}>
               <BarChart data={overview}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -254,7 +278,18 @@ export function YearCompare({ onLoadYear, refreshKey = 0 }: YearCompareProps) {
             </ResponsiveContainer>
           </ChartPanel>
 
-          <ChartPanel title="Candidates & average A grades">
+          <ChartPanel
+            title="Candidates & average A grades"
+            fileBase="year-candidates-avg-a"
+            details={{
+              headers: ["Year", "Students", "Avg A grades"],
+              rows: overview.map((y) => [
+                y.year,
+                y.studentCount,
+                y.averageAPasses,
+              ]),
+            }}
+          >
             <ResponsiveContainer width="100%" height={280}>
               <BarChart data={overview}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -281,7 +316,18 @@ export function YearCompare({ onLoadYear, refreshKey = 0 }: YearCompareProps) {
             </ResponsiveContainer>
           </ChartPanel>
 
-          <ChartPanel title="Subject pass % by year" className="lg:col-span-2">
+          <ChartPanel
+            title="Subject pass % by year"
+            className="lg:col-span-2"
+            fileBase="year-subject-pass-rate"
+            details={{
+              headers: ["Subject", ...years.map((y) => `${y.year} pass %`)],
+              rows: subjectChart.map((row) => [
+                String(row.name),
+                ...years.map((y) => `${row[y.year] ?? 0}%`),
+              ]),
+            }}
+          >
             <ResponsiveContainer width="100%" height={360}>
               <BarChart data={subjectChart} margin={{ bottom: 48 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -315,24 +361,5 @@ export function YearCompare({ onLoadYear, refreshKey = 0 }: YearCompareProps) {
         </div>
       )}
     </div>
-  );
-}
-
-function ChartPanel({
-  title,
-  children,
-  className = "",
-}: {
-  title: string;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <section className={`panel rounded-xl p-4 ${className}`}>
-      <h3 className="mb-3 font-[family-name:var(--font-display)] text-sm font-bold text-slate-800">
-        {title}
-      </h3>
-      {children}
-    </section>
   );
 }

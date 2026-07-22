@@ -21,11 +21,14 @@ import {
 } from "@/lib/colors";
 import type { AnalysisSummary } from "@/lib/types";
 import { ALL_GRADES } from "@/lib/types";
+import { ChartPanel } from "./ChartPanel";
 
 interface DashboardProps {
   summary: AnalysisSummary | null;
   statusMessage: string;
   hasData: boolean;
+  schoolName?: string;
+  examYear?: string;
 }
 
 function StatCard({
@@ -58,7 +61,20 @@ function StatCard({
   );
 }
 
-export function Dashboard({ summary, statusMessage, hasData }: DashboardProps) {
+function shortSubject(label: string) {
+  return label
+    .replace(" Subject Group", " Grp")
+    .replace("Language & Literature", "Lang & Lit")
+    .replace("English Language", "English");
+}
+
+export function Dashboard({
+  summary,
+  statusMessage,
+  hasData,
+  schoolName,
+  examYear,
+}: DashboardProps) {
   if (!hasData || !summary) {
     return (
       <div className="panel-tint rounded-xl p-6 text-[var(--brand-deep-navy)]">
@@ -75,6 +91,10 @@ export function Dashboard({ summary, statusMessage, hasData }: DashboardProps) {
       </div>
     );
   }
+
+  const meta = [schoolName, examYear ? `Year ${examYear}` : null]
+    .filter(Boolean)
+    .join(" · ");
 
   const passFailPie = [
     { name: "Pass", value: summary.passCount, color: PASS_FAIL_COLORS.pass },
@@ -103,21 +123,27 @@ export function Dashboard({ summary, statusMessage, hasData }: DashboardProps) {
   })).filter((d) => d.value > 0);
 
   const subjectPassFail = summary.subjectPassFail.map((s) => ({
-    name: s.label.replace(" Subject Group", " Grp").replace("Language & Literature", "Lang & Lit"),
+    name: shortSubject(s.label),
     Pass: s.pass,
     Fail: s.fail,
   }));
 
   const subjectGrades = summary.subjectGrades.map((s) => ({
-    name: s.label
-      .replace(" Subject Group", " Grp")
-      .replace("Language & Literature", "Lang & Lit")
-      .replace("English Language", "English"),
+    name: shortSubject(s.label).replace("English Language", "English"),
     A: s.A,
     B: s.B,
     C: s.C,
     S: s.S,
     W: s.W,
+  }));
+
+  const subjectRateData = summary.subjectPassFail.map((s) => ({
+    name: s.label
+      .replace(" Subject Group", "")
+      .replace("Language & Literature", "L&L")
+      .replace("English Language", "Eng")
+      .replace("Mathematics", "Maths"),
+    rate: s.passPercent,
   }));
 
   return (
@@ -153,7 +179,27 @@ export function Dashboard({ summary, statusMessage, hasData }: DashboardProps) {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <ChartPanel title="1. Overall Pass vs Fail %">
+        <ChartPanel
+          title="1. Overall Pass vs Fail"
+          meta={meta}
+          fileBase={`pass-vs-fail-${examYear || "results"}`}
+          details={{
+            headers: ["Result", "Students", "Percent"],
+            rows: [
+              [
+                "Pass",
+                summary.passCount,
+                `${summary.passPercent}%`,
+              ],
+              [
+                "Fail",
+                summary.failCount,
+                `${summary.failPercent}%`,
+              ],
+              ["Total", summary.totalStudents, "100%"],
+            ],
+          }}
+        >
           <ResponsiveContainer width="100%" height={260}>
             <PieChart>
               <Pie
@@ -179,7 +225,20 @@ export function Dashboard({ summary, statusMessage, hasData }: DashboardProps) {
           </ResponsiveContainer>
         </ChartPanel>
 
-        <ChartPanel title="5. Pass % by Gender">
+        <ChartPanel
+          title="2. Pass % by Gender"
+          meta={meta}
+          fileBase={`pass-by-gender-${examYear || "results"}`}
+          details={{
+            headers: ["Gender", "Passed", "Sat", "Pass %"],
+            rows: genderData.map((g) => [
+              g.name,
+              g.passed,
+              g.count,
+              `${g.passPercent}%`,
+            ]),
+          }}
+        >
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={genderData} barSize={48}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -205,7 +264,22 @@ export function Dashboard({ summary, statusMessage, hasData }: DashboardProps) {
           </ResponsiveContainer>
         </ChartPanel>
 
-        <ChartPanel title="3. Pass & Fail by Subject" className="lg:col-span-2">
+        <ChartPanel
+          title="3. Pass & Fail by Subject"
+          className="lg:col-span-2"
+          meta={meta}
+          fileBase={`pass-fail-by-subject-${examYear || "results"}`}
+          details={{
+            headers: ["Subject", "Pass", "Fail", "Sat", "Pass %"],
+            rows: summary.subjectPassFail.map((s) => [
+              s.label,
+              s.pass,
+              s.fail,
+              s.total,
+              `${s.passPercent}%`,
+            ]),
+          }}
+        >
           <ResponsiveContainer width="100%" height={320}>
             <BarChart data={subjectPassFail} margin={{ bottom: 48 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -231,7 +305,23 @@ export function Dashboard({ summary, statusMessage, hasData }: DashboardProps) {
           </ResponsiveContainer>
         </ChartPanel>
 
-        <ChartPanel title="4. Grades by Subject" className="lg:col-span-2">
+        <ChartPanel
+          title="4. Grades by Subject"
+          className="lg:col-span-2"
+          meta={meta}
+          fileBase={`grades-by-subject-${examYear || "results"}`}
+          details={{
+            headers: ["Subject", "A", "B", "C", "S", "W"],
+            rows: summary.subjectGrades.map((s) => [
+              s.label,
+              s.A,
+              s.B,
+              s.C,
+              s.S,
+              s.W,
+            ]),
+          }}
+        >
           <ResponsiveContainer width="100%" height={340}>
             <BarChart data={subjectGrades} margin={{ bottom: 48 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -253,7 +343,23 @@ export function Dashboard({ summary, statusMessage, hasData }: DashboardProps) {
           </ResponsiveContainer>
         </ChartPanel>
 
-        <ChartPanel title="6. Overall Grade Distribution">
+        <ChartPanel
+          title="5. Overall Grade Distribution"
+          meta={meta}
+          fileBase={`grade-distribution-${examYear || "results"}`}
+          details={{
+            headers: ["Grade", "Count", "Share of grades"],
+            rows: ALL_GRADES.map((g) => {
+              const count = summary.overallGradeDist[g];
+              const total = ALL_GRADES.reduce(
+                (sum, key) => sum + summary.overallGradeDist[key],
+                0,
+              );
+              const pct = total ? ((count / total) * 100).toFixed(1) : "0.0";
+              return [g, count, `${pct}%`];
+            }),
+          }}
+        >
           <ResponsiveContainer width="100%" height={260}>
             <PieChart>
               <Pie
@@ -275,22 +381,33 @@ export function Dashboard({ summary, statusMessage, hasData }: DashboardProps) {
           </ResponsiveContainer>
         </ChartPanel>
 
-        <ChartPanel title="6. Subject Pass Rate (%)">
+        <ChartPanel
+          title="6. Subject Pass Rate (%)"
+          meta={meta}
+          fileBase={`subject-pass-rate-${examYear || "results"}`}
+          details={{
+            headers: ["Subject", "Pass %", "Pass", "Fail"],
+            rows: summary.subjectPassFail.map((s) => [
+              s.label,
+              `${s.passPercent}%`,
+              s.pass,
+              s.fail,
+            ]),
+          }}
+        >
           <ResponsiveContainer width="100%" height={260}>
             <BarChart
-              data={summary.subjectPassFail.map((s) => ({
-                name: s.label
-                  .replace(" Subject Group", "")
-                  .replace("Language & Literature", "L&L")
-                  .replace("English Language", "Eng")
-                  .replace("Mathematics", "Maths"),
-                rate: s.passPercent,
-              }))}
+              data={subjectRateData}
               layout="vertical"
               margin={{ left: 16 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis type="number" domain={[0, 100]} unit="%" tick={{ fontSize: 11 }} />
+              <XAxis
+                type="number"
+                domain={[0, 100]}
+                unit="%"
+                tick={{ fontSize: 11 }}
+              />
               <YAxis
                 type="category"
                 dataKey="name"
@@ -298,30 +415,16 @@ export function Dashboard({ summary, statusMessage, hasData }: DashboardProps) {
                 tick={{ fontSize: 10 }}
               />
               <Tooltip formatter={(v) => [`${v}%`, "Pass rate"]} />
-              <Bar dataKey="rate" name="Pass %" fill={DATA.rate} radius={[0, 4, 4, 0]} />
+              <Bar
+                dataKey="rate"
+                name="Pass %"
+                fill={DATA.rate}
+                radius={[0, 4, 4, 0]}
+              />
             </BarChart>
           </ResponsiveContainer>
         </ChartPanel>
       </div>
     </div>
-  );
-}
-
-function ChartPanel({
-  title,
-  children,
-  className = "",
-}: {
-  title: string;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <section className={`panel rounded-xl p-4 ${className}`}>
-      <h3 className="mb-3 font-[family-name:var(--font-display)] text-sm font-bold text-slate-800">
-        {title}
-      </h3>
-      {children}
-    </section>
   );
 }

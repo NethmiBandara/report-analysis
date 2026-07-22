@@ -197,13 +197,21 @@ export function ResultsApp() {
               summary={summary}
               statusMessage={status}
               hasData={students.length > 0}
+              schoolName={schoolName}
+              examYear={examYear}
             />
           )}
           {tab === "students" && <StudentsTable students={students} />}
           {tab === "best-performance" && (
             <BestPerformance students={students} />
           )}
-          {tab === "subjects" && <SubjectsPanel summary={summary} />}
+          {tab === "subjects" && (
+            <SubjectsPanel
+              summary={summary}
+              schoolName={schoolName}
+              examYear={examYear}
+            />
+          )}
           {tab === "year-compare" && (
             <YearCompare
               onLoadYear={(y) => void handleLoadYear(y)}
@@ -216,6 +224,7 @@ export function ResultsApp() {
               summary={summary}
               schoolName={schoolName}
               examTitle={examTitle}
+              examYear={examYear}
             />
           )}
         </div>
