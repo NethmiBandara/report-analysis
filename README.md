@@ -1,36 +1,85 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# O/L Results Analysis
 
-## Getting Started
+A Next.js app for analysing G.C.E. Ordinary Level (O/L) examination results from Excel workbooks. Upload school result sheets, view dashboards and subject breakdowns, compare years, and export summaries.
 
-First, run the development server:
+Built for school-level reporting (e.g. Defence Services College–style O/L sheets).
+
+## Features
+
+- Upload and parse O/L results Excel files
+- Dashboard: pass rates, grade distribution, gender/medium splits
+- Per-subject analysis and student tables
+- Best-performance highlights
+- Year-over-year comparison (saved locally under `data/`)
+- Download / export panels for reports
+- Sample workbook included: `public/sample-ol-results.xlsx`
+
+## Tech stack
+
+- [Next.js](https://nextjs.org) 16 (App Router)
+- React 19
+- TypeScript
+- Tailwind CSS 4
+- [Recharts](https://recharts.org) for charts
+- [SheetJS (xlsx)](https://sheetjs.com) for Excel parsing
+
+## Getting started
+
+### Prerequisites
+
+- Node.js 20+
+- [pnpm](https://pnpm.io) (recommended)
+
+### Install
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Development
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+pnpm dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Open [http://localhost:3000](http://localhost:3000).
 
-## Learn More
+### Production build
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+pnpm build
+pnpm start
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Lint
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+pnpm lint
+```
 
-## Deploy on Vercel
+## Sample data
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+A sample Excel file is available at `public/sample-ol-results.xlsx`. You can regenerate it with:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+node scripts/make-sample.mjs
+```
+
+## Data storage
+
+Uploaded/saved year results are stored as JSON under `data/` (e.g. `year-2026.json`). These files are gitignored so local exam data is not committed. Only `data/.gitkeep` is tracked.
+
+## Project structure
+
+```
+app/           # Next.js app router pages and API routes
+components/    # UI (dashboard, tables, compare, etc.)
+lib/           # Parsing, analysis, DB helpers, types
+data/          # Local year JSON (ignored except .gitkeep)
+public/        # Static assets and sample Excel
+scripts/       # Sample generation and parse tests
+```
+
+## License
+
+Private project (`"private": true` in `package.json`).

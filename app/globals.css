@@ -1,26 +1,74 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Logo colors — backgrounds & chrome */
+  --brand-gold: #ffd200;
+  --brand-royal: #0054a6;
+  --brand-sky: #00adef;
+  --brand-navy: #2e3192;
+  --brand-deep-navy: #1a1c5c;
+  --brand-orange: #f58220;
+  --brand-tan: #a67c52;
+
+  /* Data UI (graphs / tables) — not logo colors */
+  --data-pass: #0f766e;
+  --data-fail: #be123c;
+  --data-header: #334155;
+  --data-header-text: #f8fafc;
+  --data-accent: #0f766e;
+  --data-male: #0e7490;
+  --data-female: #7c3aed;
+
+  --background: #e8f4fc;
+  --foreground: #0f172a;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-body);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+body {
+  background:
+    radial-gradient(ellipse 80% 50% at 10% -10%, rgba(0, 173, 239, 0.35), transparent 55%),
+    radial-gradient(ellipse 60% 40% at 100% 0%, rgba(255, 210, 0, 0.28), transparent 50%),
+    linear-gradient(160deg, #d6ecfa 0%, #e8f4fc 40%, #eef2ff 100%);
+  color: var(--foreground);
+  font-family: var(--font-body), "Noto Sans Sinhala", sans-serif;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Soft logo-tinted panels */
+.panel {
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(0, 84, 166, 0.12);
+  box-shadow: 0 1px 2px rgba(26, 28, 92, 0.06);
+  backdrop-filter: blur(6px);
+}
+
+.panel-tint {
+  background: linear-gradient(
+    135deg,
+    rgba(0, 173, 239, 0.12),
+    rgba(255, 255, 255, 0.9) 55%,
+    rgba(255, 210, 0, 0.08)
+  );
+  border: 1px solid rgba(0, 84, 166, 0.15);
+}
+
+@media print {
+  aside,
+  header,
+  .print\:hidden {
+    display: none !important;
+  }
+
+  body {
+    background: white;
+  }
+
+  main {
+    overflow: visible !important;
+  }
 }
